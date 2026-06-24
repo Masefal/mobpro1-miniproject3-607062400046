@@ -1,8 +1,10 @@
 package com.masefal_0046.aerovault.network
 
-import com.google.gson.Gson
 import com.masefal_0046.aerovault.model.Jet
 import com.masefal_0046.aerovault.model.User
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
@@ -13,8 +15,14 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import java.util.UUID
 
 class MockInterceptor : Interceptor {
-    private val gson = Gson()
-    
+    private val moshi = Moshi.Builder()
+        .add(KotlinJsonAdapterFactory())
+        .build()
+        
+    private val userAdapter = moshi.adapter(User::class.java)
+    private val jetAdapter = moshi.adapter(Jet::class.java)
+    private val jetsListAdapter = moshi.adapter<List<Jet>>(Types.newParameterizedType(List::class.java, Jet::class.java))
+
     // In-memory list to simulate a database
     private val jetsList = mutableListOf(
         Jet(
@@ -58,10 +66,10 @@ class MockInterceptor : Interceptor {
                     name = "Maverick",
                     profilePictureUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Tom_Cruise_%2834450932580%29.jpg/800px-Tom_Cruise_%2834450932580%29.jpg"
                 )
-                responseString = gson.toJson(user)
+                responseString = userAdapter.toJson(user)
             }
             path.endsWith("/jets") && request.method == "GET" -> {
-                responseString = gson.toJson(jetsList)
+                responseString = jetsListAdapter.toJson(jetsList)
             }
             path.endsWith("/jets") && request.method == "POST" -> {
                 // To extract body for realistic ID generation or error, we simplify here
@@ -69,11 +77,16 @@ class MockInterceptor : Interceptor {
                 val buffer = okio.Buffer()
                 request.body?.writeTo(buffer)
                 val requestBodyString = buffer.readUtf8()
-                val newJet = gson.fromJson(requestBodyString, Jet::class.java)
+                val newJet = jetAdapter.fromJson(requestBodyString)
                 
-                val jetWithId = newJet.copy(id = UUID.randomUUID().toString())
-                jetsList.add(jetWithId)
-                responseString = gson.toJson(jetWithId)
+                if (newJet != null) {
+                    val jetWithId = newJet.copy(id = UUID.randomUUID().toString())
+                    jetsList.add(jetWithId)
+                    responseString = jetAdapter.toJson(jetWithId)
+                } else {
+                    responseCode = 400
+                    responseString = "{\"error\": \"Bad request\"}"
+                }
             }
             path.contains("/jets/") && request.method == "DELETE" -> {
                 val id = request.url.pathSegments.last()

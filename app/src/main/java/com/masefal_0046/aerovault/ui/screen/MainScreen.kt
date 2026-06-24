@@ -40,42 +40,55 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.masefal_0046.aerovault.R
+import com.masefal_0046.aerovault.data.UserPreferencesRepository
 import com.masefal_0046.aerovault.model.Jet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(
-    viewModel: MainViewModel,
-    onLogout: () -> Unit
-) {
-    val jetsState by viewModel.jetsState.collectAsState()
+fun MainScreen() {
+    val context = LocalContext.current
     
-    var showAddDialog by remember { mutableStateOf(false) }
-    var showProfileDialog by remember { mutableStateOf(false) }
-    var jetToDelete by remember { mutableStateOf<Jet?>(null) }
+    // Instantiate ViewModel with Factory to inject UserPreferencesRepository
+    val viewModel: MainViewModel = viewModel(
+        factory = MainViewModelFactory(UserPreferencesRepository(context))
+    )
+    
+    val userLoginStatus by viewModel.userLoginStatus.collectAsState(initial = false)
 
-    LaunchedEffect(Unit) {
-        viewModel.fetchJets()
-    }
+    var showProfileDialog by remember { mutableStateOf(false) }
+    var showJetDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("AeroVault") },
+                title = {
+                    Text(text = stringResource(id = R.string.app_name))
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.primary,
                 ),
                 actions = {
-                    IconButton(onClick = { showProfileDialog = true }) {
+                    IconButton(onClick = {
+                        if (!userLoginStatus) {
+                            viewModel.login("pilot@aerovault.com")
+                        } else {
+                            showProfileDialog = true
+                        }
+                    }) {
                         Icon(
-                            imageVector = Icons.Filled.AccountCircle, 
-                            contentDescription = "Profile",
+                            imageVector = Icons.Default.AccountCircle,
+                            contentDescription = "Profil",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -83,96 +96,117 @@ fun MainScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
+            FloatingActionButton(onClick = {
+                showJetDialog = true
+            }) {
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = "Tambah Jet"
                 )
             }
         }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentAlignment = Alignment.Center
-        ) {
-            when (val state = jetsState) {
-                is NetworkResult.Loading -> {
-                    CircularProgressIndicator()
-                }
-                is NetworkResult.Success -> {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(bottom = 80.dp),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(4.dp)
-                    ) {
-                        items(state.data) { jet ->
-                            JetItem(
-                                jet = jet,
-                                onDeleteClick = { jetToDelete = jet }
-                            )
+    ) { innerPadding ->
+        ScreenContent(viewModel, Modifier.padding(innerPadding))
+
+        if (showProfileDialog) {
+            ProfileDialog(
+                viewModel = viewModel,
+                onDismiss = { showProfileDialog = false },
+                onLogout = { showProfileDialog = false }
+            )
+        }
+
+        if (showJetDialog) {
+            JetDialog(
+                viewModel = viewModel,
+                onDismiss = { showJetDialog = false }
+            )
+        }
+    }
+}
+
+@Composable
+fun ScreenContent(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+    val jetsState by viewModel.jetsState.collectAsState()
+
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var jetToDelete by remember { mutableStateOf<Jet?>(null) }
+
+    LaunchedEffect(Unit) {
+        viewModel.fetchJets()
+    }
+
+    when (jetsState) {
+        is NetworkResult.Idle, is NetworkResult.Loading -> {
+            Box(
+                modifier = modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+
+        is NetworkResult.Success -> {
+            val data = (jetsState as NetworkResult.Success).data
+            LazyVerticalGrid(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(4.dp),
+                columns = GridCells.Fixed(2),
+                contentPadding = PaddingValues(bottom = 80.dp)
+            ) {
+                items(data) { jet ->
+                    JetItem(
+                        jet = jet,
+                        onDeleteClick = { 
+                            jetToDelete = jet
+                            showDeleteDialog = true
                         }
-                    }
+                    )
                 }
-                is NetworkResult.Error -> {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = state.message,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        Button(
-                            onClick = { viewModel.fetchJets() },
-                            modifier = Modifier.padding(top = 16.dp),
-                            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp)
-                        ) {
-                            Text("Try Again")
-                        }
-                    }
+            }
+        }
+
+        is NetworkResult.Error -> {
+            Column(
+                modifier = modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(text = "Terjadi Kesalahan")
+                Button(
+                    onClick = { viewModel.fetchJets() },
+                    modifier = Modifier.padding(top = 16.dp),
+                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp)
+                ) {
+                    Text(text = "Coba Lagi")
                 }
-                else -> {}
             }
         }
     }
-
-    if (showAddDialog) {
-        JetDialog(
-            viewModel = viewModel,
-            onDismiss = { showAddDialog = false }
-        )
-    }
-
-    if (showProfileDialog) {
-        ProfileDialog(
-            viewModel = viewModel,
-            onDismiss = { showProfileDialog = false },
-            onLogout = onLogout
-        )
-    }
-
-    jetToDelete?.let { jet ->
+    
+    if (showDeleteDialog && jetToDelete != null) {
         AlertDialog(
-            onDismissRequest = { jetToDelete = null },
-            title = { Text("Hapus Data") },
-            text = { Text("Apakah Anda yakin ingin menghapus ${jet.nama}?") },
+            onDismissRequest = {
+                showDeleteDialog = false
+                jetToDelete = null
+            },
+            title = { Text("Hapus Jet") },
+            text = { Text("Apakah Anda yakin ingin menghapus ${jetToDelete?.nama}?") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.deleteJet(jet.id)
-                        jetToDelete = null
-                    }
-                ) {
-                    Text("Hapus", color = Color.Red)
+                TextButton(onClick = {
+                    viewModel.deleteJet(jetToDelete!!.id)
+                    showDeleteDialog = false
+                    jetToDelete = null
+                }) {
+                    Text("Hapus")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { jetToDelete = null }) {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    jetToDelete = null
+                }) {
                     Text("Batal")
                 }
             }
@@ -189,7 +223,10 @@ fun JetItem(jet: Jet, onDeleteClick: () -> Unit) {
         contentAlignment = Alignment.BottomCenter
     ) {
         AsyncImage(
-            model = jet.imageUrl,
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(jet.imageUrl)
+                .crossfade(true)
+                .build(),
             contentDescription = "Gambar ${jet.nama}",
             modifier = Modifier
                 .fillMaxWidth()

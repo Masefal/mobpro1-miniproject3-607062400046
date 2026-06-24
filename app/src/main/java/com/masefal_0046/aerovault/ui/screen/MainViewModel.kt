@@ -25,6 +25,7 @@ class MainViewModel(
     private val apiService: AeroVaultApiService = NetworkModule.apiService
 ) : ViewModel() {
 
+    val errorMessage = androidx.compose.runtime.mutableStateOf<String?>(null)
     private val _jetsState = MutableStateFlow<NetworkResult<List<Jet>>>(NetworkResult.Idle)
     val jetsState: StateFlow<NetworkResult<List<Jet>>> = _jetsState.asStateFlow()
 
