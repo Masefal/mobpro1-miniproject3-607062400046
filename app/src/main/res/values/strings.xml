@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">AeroVault</string>
+    <string name="error">Gagal memuat data.. Koneksi error.</string>
+    <string name="try_again">Coba lagi</string>
+    <string name="profil">Profil</string>
+    <string name="tambah_hewan">Tambah Jet</string>
 </resources>

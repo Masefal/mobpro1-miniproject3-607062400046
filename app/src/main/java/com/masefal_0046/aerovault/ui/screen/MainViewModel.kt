@@ -12,6 +12,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 
 sealed class NetworkResult<out T> {
     object Idle : NetworkResult<Nothing>()
@@ -44,7 +47,7 @@ class MainViewModel(
         viewModelScope.launch {
             _jetsState.value = NetworkResult.Loading
             try {
-                val response = apiService.getJets()
+                val response = apiService.getJets("pilot@aerovault.com")
                 if (response.isSuccessful && response.body() != null) {
                     _jetsState.value = NetworkResult.Success(response.body()!!)
                 } else {
@@ -61,9 +64,15 @@ class MainViewModel(
             _addJetState.value = NetworkResult.Loading
             try {
                 val newJet = Jet(id = "", nama = name, asalNegara = origin, role = role, imageUrl = imageUrl)
-                val response = apiService.addJet(newJet)
-                if (response.isSuccessful && response.body() != null) {
-                    _addJetState.value = NetworkResult.Success(response.body()!!)
+                
+                val namaBody = name.toRequestBody("text/plain".toMediaTypeOrNull())
+                val asalNegaraBody = origin.toRequestBody("text/plain".toMediaTypeOrNull())
+                val roleBody = role.toRequestBody("text/plain".toMediaTypeOrNull())
+                val dummyImage = MultipartBody.Part.createFormData("image", "dummy.jpg", "dummy".toRequestBody("image/jpeg".toMediaTypeOrNull()))
+                
+                val status = apiService.postJet("pilot@aerovault.com", namaBody, asalNegaraBody, roleBody, dummyImage)
+                if (status.status == "success") {
+                    _addJetState.value = NetworkResult.Success(newJet)
                     fetchJets() // refresh list
                 } else {
                     _addJetState.value = NetworkResult.Error("Failed to add jet")
@@ -78,8 +87,8 @@ class MainViewModel(
         viewModelScope.launch {
             _deleteJetState.value = NetworkResult.Loading
             try {
-                val response = apiService.deleteJet(id)
-                if (response.isSuccessful) {
+                val status = apiService.deleteJet("pilot@aerovault.com", id)
+                if (status.status == "success") {
                     _deleteJetState.value = NetworkResult.Success(Unit)
                     fetchJets() // refresh list
                 } else {

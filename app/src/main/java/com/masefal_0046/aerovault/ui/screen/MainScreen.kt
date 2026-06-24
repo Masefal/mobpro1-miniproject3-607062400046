@@ -173,13 +173,13 @@ fun ScreenContent(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(text = "Terjadi Kesalahan")
+                Text(text = stringResource(id = R.string.error))
                 Button(
                     onClick = { viewModel.fetchJets() },
                     modifier = Modifier.padding(top = 16.dp),
                     contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp)
                 ) {
-                    Text(text = "Coba Lagi")
+                    Text(text = stringResource(id = R.string.try_again))
                 }
             }
         }
@@ -228,6 +228,8 @@ fun JetItem(jet: Jet, onDeleteClick: () -> Unit) {
                 .crossfade(true)
                 .build(),
             contentDescription = "Gambar ${jet.nama}",
+            placeholder = androidx.compose.ui.res.painterResource(id = R.drawable.loading_img),
+            error = androidx.compose.ui.res.painterResource(id = R.drawable.broken_img),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(4.dp),
