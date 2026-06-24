@@ -55,7 +55,5 @@ interface AeroVaultApiService {
         @Query("id") id: String
     ): OpStatus
 
-    // Dummy login endpoint
-    @POST("login")
-    suspend fun login(@Body request: Map<String, String>): Response<User>
+
 }

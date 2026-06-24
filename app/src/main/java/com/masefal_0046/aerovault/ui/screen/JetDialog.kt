@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun JetDialog(
     viewModel: MainViewModel,
+    userEmail: String,
     onDismiss: () -> Unit
 ) {
     val addJetState by viewModel.addJetState.collectAsState()
@@ -96,7 +97,7 @@ fun JetDialog(
                             errorText = "All fields must be filled"
                         } else {
                             errorText = ""
-                            viewModel.addJet(name, origin, role, imageUrl)
+                            viewModel.addJet(userEmail, name, origin, role, imageUrl)
                         }
                     }
                 ) {

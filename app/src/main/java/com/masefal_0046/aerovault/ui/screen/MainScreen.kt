@@ -47,23 +47,38 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetCredentialResponse
+import androidx.credentials.exceptions.ClearCredentialException
+import androidx.credentials.exceptions.GetCredentialException
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
+import com.masefal_0046.aerovault.BuildConfig
 import com.masefal_0046.aerovault.R
-import com.masefal_0046.aerovault.data.UserPreferencesRepository
+import com.masefal_0046.aerovault.network.UserDataStore
 import com.masefal_0046.aerovault.model.Jet
+import com.masefal_0046.aerovault.model.User
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import android.util.Log
+import android.content.Context
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
     
-    // Instantiate ViewModel with Factory to inject UserPreferencesRepository
-    val viewModel: MainViewModel = viewModel(
-        factory = MainViewModelFactory(UserPreferencesRepository(context))
-    )
+    val viewModel: MainViewModel = viewModel(factory = MainViewModelFactory())
     
-    val userLoginStatus by viewModel.userLoginStatus.collectAsState(initial = false)
+    val dataStore = UserDataStore(context)
+    val user by dataStore.userFlow.collectAsState(User())
 
     var showProfileDialog by remember { mutableStateOf(false) }
     var showJetDialog by remember { mutableStateOf(false) }
@@ -80,8 +95,8 @@ fun MainScreen() {
                 ),
                 actions = {
                     IconButton(onClick = {
-                        if (!userLoginStatus) {
-                            viewModel.login("pilot@aerovault.com")
+                        if (user.email.isEmpty()) {
+                            CoroutineScope(Dispatchers.IO).launch { signIn(context, dataStore) }
                         } else {
                             showProfileDialog = true
                         }
@@ -106,19 +121,23 @@ fun MainScreen() {
             }
         }
     ) { innerPadding ->
-        ScreenContent(viewModel, Modifier.padding(innerPadding))
+        ScreenContent(viewModel, user.email, Modifier.padding(innerPadding))
 
         if (showProfileDialog) {
             ProfileDialog(
-                viewModel = viewModel,
-                onDismiss = { showProfileDialog = false },
-                onLogout = { showProfileDialog = false }
+                user = user,
+                onDismissRequest = { showProfileDialog = false },
+                onConfirmation = { 
+                    showProfileDialog = false 
+                    CoroutineScope(Dispatchers.IO).launch { signOut(context, dataStore) }
+                }
             )
         }
 
         if (showJetDialog) {
             JetDialog(
                 viewModel = viewModel,
+                userEmail = user.email,
                 onDismiss = { showJetDialog = false }
             )
         }
@@ -126,14 +145,16 @@ fun MainScreen() {
 }
 
 @Composable
-fun ScreenContent(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+fun ScreenContent(viewModel: MainViewModel, userEmail: String, modifier: Modifier = Modifier) {
     val jetsState by viewModel.jetsState.collectAsState()
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var jetToDelete by remember { mutableStateOf<Jet?>(null) }
 
-    LaunchedEffect(Unit) {
-        viewModel.fetchJets()
+    LaunchedEffect(userEmail) {
+        if (userEmail.isNotEmpty()) {
+            viewModel.fetchJets(userEmail)
+        }
     }
 
     when (jetsState) {
@@ -175,7 +196,7 @@ fun ScreenContent(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             ) {
                 Text(text = stringResource(id = R.string.error))
                 Button(
-                    onClick = { viewModel.fetchJets() },
+                    onClick = { if (userEmail.isNotEmpty()) viewModel.fetchJets(userEmail) },
                     modifier = Modifier.padding(top = 16.dp),
                     contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp)
                 ) {
@@ -195,7 +216,7 @@ fun ScreenContent(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             text = { Text("Apakah Anda yakin ingin menghapus ${jetToDelete?.nama}?") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.deleteJet(jetToDelete!!.id)
+                    viewModel.deleteJet(userEmail, jetToDelete!!.id)
                     showDeleteDialog = false
                     jetToDelete = null
                 }) {
@@ -265,5 +286,51 @@ fun JetItem(jet: Jet, onDeleteClick: () -> Unit) {
                 tint = Color.Red
             )
         }
+    }
+}
+
+private suspend fun signIn(context: Context, dataStore: UserDataStore) {
+    val googleIdOption: GetGoogleIdOption = GetGoogleIdOption.Builder()
+        .setFilterByAuthorizedAccounts(false)
+        .setServerClientId(BuildConfig.API_KEY)
+        .build()
+
+    val request: GetCredentialRequest = GetCredentialRequest.Builder()
+        .addCredentialOption(googleIdOption)
+        .build()
+
+    try {
+        val credentialManager = CredentialManager.create(context)
+        val result = credentialManager.getCredential(context, request)
+        handleSignIn(result, dataStore)
+    } catch (e: GetCredentialException) {
+        Log.e("SIGN-IN", "Error: ${e.errorMessage}")
+    }
+}
+
+private suspend fun handleSignIn(result: GetCredentialResponse, dataStore: UserDataStore) {
+    val credential = result.credential
+    if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+        try {
+            val googleId = GoogleIdTokenCredential.createFrom(credential.data)
+            val name = googleId.displayName ?: ""
+            val email = googleId.id
+            val photoUrl = googleId.profilePictureUri?.toString() ?: ""
+            dataStore.saveData(User(name, email, photoUrl))
+        } catch (e: GoogleIdTokenParsingException) {
+            Log.e("SIGN-IN", "Error: ${e.message}")
+        }
+    } else {
+        Log.e("SIGN-IN", "Error: unrecognized custom credential type.")
+    }
+}
+
+private suspend fun signOut(context: Context, dataStore: UserDataStore) {
+    try {
+        val credentialManager = CredentialManager.create(context)
+        credentialManager.clearCredentialState(ClearCredentialStateRequest())
+        dataStore.saveData(User())
+    } catch (e: ClearCredentialException) {
+        Log.e("SIGN-IN", "Error: ${e.errorMessage}")
     }
 }

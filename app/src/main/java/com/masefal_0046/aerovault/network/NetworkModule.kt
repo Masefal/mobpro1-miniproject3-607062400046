@@ -8,16 +8,24 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 
 object NetworkModule {
     
-    private const val BASE_URL = "https://api.aerovault.com/" // Dummy URL, MockInterceptor intercepts it
+    // Use the Supabase URL
+    private const val BASE_URL = "https://wdprdculwsfajsitlpou.supabase.co/"
 
     private val moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())
         .build()
 
-    private val mockInterceptor = MockInterceptor()
+    // Real interceptor to attach Supabase API Key
+    private val authInterceptor = okhttp3.Interceptor { chain ->
+        val req = chain.request()
+        val newReq = req.newBuilder()
+            .addHeader("apikey", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkcHJkY3Vsd3NmYWpzaXRscG91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyODM3MDQsImV4cCI6MjA5Nzg1OTcwNH0.HjunHHQg-L9zQAINksSvzNKH4d4k0uhC3K4qjVl08Fg")
+            .build()
+        chain.proceed(newReq)
+    }
 
     private val okHttpClient = OkHttpClient.Builder()
-        .addInterceptor(mockInterceptor)
+        .addInterceptor(authInterceptor)
         .build()
 
     val apiService: AeroVaultApiService by lazy {

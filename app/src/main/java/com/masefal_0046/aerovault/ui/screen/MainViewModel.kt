@@ -3,7 +3,7 @@ package com.masefal_0046.aerovault.ui.screen
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.masefal_0046.aerovault.data.UserPreferencesRepository
+import com.masefal_0046.aerovault.network.UserDataStore
 import com.masefal_0046.aerovault.model.Jet
 import com.masefal_0046.aerovault.model.User
 import com.masefal_0046.aerovault.network.AeroVaultApiService
@@ -24,7 +24,6 @@ sealed class NetworkResult<out T> {
 }
 
 class MainViewModel(
-    private val preferencesRepository: UserPreferencesRepository,
     private val apiService: AeroVaultApiService = NetworkModule.apiService
 ) : ViewModel() {
 
@@ -38,16 +37,13 @@ class MainViewModel(
     private val _deleteJetState = MutableStateFlow<NetworkResult<Unit>>(NetworkResult.Idle)
     val deleteJetState: StateFlow<NetworkResult<Unit>> = _deleteJetState.asStateFlow()
 
-    private val _loginState = MutableStateFlow<NetworkResult<User>>(NetworkResult.Idle)
-    val loginState: StateFlow<NetworkResult<User>> = _loginState.asStateFlow()
-    
-    val userLoginStatus = preferencesRepository.loginStatusFlow
 
-    fun fetchJets() {
+
+    fun fetchJets(email: String) {
         viewModelScope.launch {
             _jetsState.value = NetworkResult.Loading
             try {
-                val response = apiService.getJets("pilot@aerovault.com")
+                val response = apiService.getJets(email)
                 if (response.isSuccessful && response.body() != null) {
                     _jetsState.value = NetworkResult.Success(response.body()!!)
                 } else {
@@ -59,7 +55,7 @@ class MainViewModel(
         }
     }
 
-    fun addJet(name: String, origin: String, role: String, imageUrl: String) {
+    fun addJet(email: String, name: String, origin: String, role: String, imageUrl: String) {
         viewModelScope.launch {
             _addJetState.value = NetworkResult.Loading
             try {
@@ -70,10 +66,10 @@ class MainViewModel(
                 val roleBody = role.toRequestBody("text/plain".toMediaTypeOrNull())
                 val dummyImage = MultipartBody.Part.createFormData("image", "dummy.jpg", "dummy".toRequestBody("image/jpeg".toMediaTypeOrNull()))
                 
-                val status = apiService.postJet("pilot@aerovault.com", namaBody, asalNegaraBody, roleBody, dummyImage)
+                val status = apiService.postJet(email, namaBody, asalNegaraBody, roleBody, dummyImage)
                 if (status.status == "success") {
                     _addJetState.value = NetworkResult.Success(newJet)
-                    fetchJets() // refresh list
+                    fetchJets(email) // refresh list
                 } else {
                     _addJetState.value = NetworkResult.Error("Failed to add jet")
                 }
@@ -83,14 +79,14 @@ class MainViewModel(
         }
     }
 
-    fun deleteJet(id: String) {
+    fun deleteJet(email: String, id: String) {
         viewModelScope.launch {
             _deleteJetState.value = NetworkResult.Loading
             try {
-                val status = apiService.deleteJet("pilot@aerovault.com", id)
+                val status = apiService.deleteJet(email, id)
                 if (status.status == "success") {
                     _deleteJetState.value = NetworkResult.Success(Unit)
-                    fetchJets() // refresh list
+                    fetchJets(email) // refresh list
                 } else {
                     _deleteJetState.value = NetworkResult.Error("Failed to delete jet")
                 }
@@ -100,30 +96,7 @@ class MainViewModel(
         }
     }
 
-    fun login(email: String) {
-        viewModelScope.launch {
-            _loginState.value = NetworkResult.Loading
-            try {
-                val request = mapOf("email" to email)
-                val response = apiService.login(request)
-                if (response.isSuccessful && response.body() != null) {
-                    _loginState.value = NetworkResult.Success(response.body()!!)
-                    preferencesRepository.saveLoginStatus(true)
-                } else {
-                    _loginState.value = NetworkResult.Error("Login failed")
-                }
-            } catch (e: Exception) {
-                _loginState.value = NetworkResult.Error("Network Error")
-            }
-        }
-    }
 
-    fun logout() {
-        viewModelScope.launch {
-            preferencesRepository.saveLoginStatus(false)
-            _loginState.value = NetworkResult.Idle
-        }
-    }
 
     fun resetAddJetState() {
         _addJetState.value = NetworkResult.Idle
@@ -134,13 +107,11 @@ class MainViewModel(
     }
 }
 
-class MainViewModelFactory(
-    private val preferencesRepository: UserPreferencesRepository
-) : ViewModelProvider.Factory {
+class MainViewModelFactory : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return MainViewModel(preferencesRepository) as T
+            return MainViewModel() as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
