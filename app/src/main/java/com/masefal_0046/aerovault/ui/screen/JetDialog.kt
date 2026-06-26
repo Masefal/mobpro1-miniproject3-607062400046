@@ -8,29 +8,31 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.dp
 import com.canhub.cropper.CropImageContract
 import com.canhub.cropper.CropImageContractOptions
@@ -61,10 +63,9 @@ private fun getCroppedImage(
 @Composable
 fun JetDialog(
     viewModel: MainViewModel,
-    userEmail: String, // Ingat, ini bertindak sebagai token lo ya
+    userEmail: String,
     onDismiss: () -> Unit
 ) {
-    val addJetState by viewModel.addJetState.collectAsState()
     val context = LocalContext.current
 
     var name by remember { mutableStateOf("") }
@@ -81,18 +82,16 @@ fun JetDialog(
         }
     }
 
-    LaunchedEffect(addJetState) {
-        if (addJetState is NetworkResult.Success) {
-            viewModel.resetAddJetState()
-            onDismiss()
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Tambah Jet Tempur") },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Dialog(onDismissRequest = { onDismiss() }) {
+        Card(
+            modifier = Modifier.padding(16.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Tambah Jet Tempur", style = MaterialTheme.typography.titleLarge)
 
                 if (bitmap != null) {
                     Image(
@@ -100,92 +99,125 @@ fun JetDialog(
                         contentDescription = "Preview Jet",
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(150.dp)
-                            .padding(bottom = 8.dp)
+                            .aspectRatio(1f)
+                            .padding(top = 12.dp)
                     )
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            val options = CropImageContractOptions(
+                                null, CropImageOptions(
+                                    imageSourceIncludeGallery = true,
+                                    imageSourceIncludeCamera = false,
+                                    fixAspectRatio = true
+                                )
+                            )
+                            launcher.launch(options)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .padding(top = 12.dp)
+                    ) {
+                        Text("Pilih Foto Jet")
+                    }
                 }
 
-                Button(onClick = {
-                    val options = CropImageContractOptions(
-                        null, CropImageOptions(
-                            imageSourceIncludeGallery = true,
-                            imageSourceIncludeCamera = false,
-                            fixAspectRatio = true
-                        )
-                    )
-                    launcher.launch(options)
-                }) {
-                    Text(if (bitmap == null) "Pilih Foto Jet" else "Ganti Foto")
+                if (bitmap != null) {
+                    OutlinedButton(
+                        onClick = {
+                            val options = CropImageContractOptions(
+                                null, CropImageOptions(
+                                    imageSourceIncludeGallery = true,
+                                    imageSourceIncludeCamera = false,
+                                    fixAspectRatio = true
+                                )
+                            )
+                            launcher.launch(options)
+                        },
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        Text("Ganti Foto")
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // --- BAGIAN TEKS ---
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Nama Jet") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    maxLines = 1,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Words,
+                        imeAction = ImeAction.Next
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = origin,
                     onValueChange = { origin = it },
                     label = { Text("Asal Negara") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    maxLines = 1,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Words,
+                        imeAction = ImeAction.Next
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = role,
                     onValueChange = { role = it },
                     label = { Text("Role (Peran)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    maxLines = 1,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Done
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                 )
 
                 if (errorText.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = errorText, color = MaterialTheme.colorScheme.error)
-                }
-
-                if (addJetState is NetworkResult.Error) {
-                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = (addJetState as NetworkResult.Error).message,
-                        color = MaterialTheme.colorScheme.error
+                        text = errorText,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp)
                     )
                 }
-            }
-        },
-        confirmButton = {
-            if (addJetState is NetworkResult.Loading) {
-                CircularProgressIndicator()
-            } else {
-                TextButton(
-                    onClick = {
-                        if (name.isBlank() || origin.isBlank() || role.isBlank() || bitmap == null) {
-                            errorText = "Semua kolom dan gambar wajib diisi!"
-                        } else {
-                            errorText = ""
 
-                            val stream = ByteArrayOutputStream()
-                            bitmap!!.compress(Bitmap.CompressFormat.JPEG, 80, stream)
-                            val imageBytes = stream.toByteArray()
-
-                            viewModel.addJet("Bearer $userEmail", name, origin, role, imageBytes)
-                        }
-                    }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Text("Simpan")
+                    OutlinedButton(
+                        onClick = { onDismiss() },
+                        modifier = Modifier.padding(8.dp)
+                    ) {
+                        Text("Batal")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            if (name.isBlank() || origin.isBlank() || role.isBlank() || bitmap == null) {
+                                errorText = "Semua kolom dan gambar wajib diisi!"
+                            } else {
+                                errorText = ""
+
+                                val stream = ByteArrayOutputStream()
+                                bitmap!!.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+                                val imageBytes = stream.toByteArray()
+
+                                viewModel.saveData(userEmail, name, origin, role, imageBytes)
+                                onDismiss()
+                            }
+                        },
+                        enabled = name.isNotBlank() &&
+                                origin.isNotBlank() &&
+                                role.isNotBlank() &&
+                                bitmap != null,
+                        modifier = Modifier.padding(8.dp)
+                    ) {
+                        Text("Simpan")
+                    }
                 }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Batal")
-            }
         }
-    )
+    }
 }

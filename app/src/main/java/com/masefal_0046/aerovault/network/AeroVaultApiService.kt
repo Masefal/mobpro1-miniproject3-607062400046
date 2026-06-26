@@ -12,10 +12,10 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
-import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import java.util.concurrent.TimeUnit
 
 private const val BASE_URL = "https://wdprdculwsfajsitlpou.supabase.co/"
 
@@ -24,11 +24,14 @@ private val moshi = Moshi.Builder()
     .build()
 
 val okHttpClient = OkHttpClient.Builder()
+    .callTimeout(20, TimeUnit.SECONDS)
+    .connectTimeout(15, TimeUnit.SECONDS)
+    .readTimeout(15, TimeUnit.SECONDS)
     .addInterceptor { chain ->
         val original = chain.request()
         val newRequest = original.newBuilder()
-            .addHeader("apikey", BuildConfig.SUPABASE_KEY)
-            .addHeader("Authorization", "Bearer ${BuildConfig.SUPABASE_KEY}")
+            .header("apikey", BuildConfig.SUPABASE_KEY)
+            .header("Authorization", "Bearer ${BuildConfig.SUPABASE_KEY}")
             .build()
         chain.proceed(newRequest)
     }
@@ -42,27 +45,23 @@ private val retrofit = Retrofit.Builder()
 
 interface AeroVaultApiService {
     @GET("rest/v1/jetsx?select=*")
-    suspend fun getJets(
-        @Header("Authorization") token: String
-    ): Response<List<Jet>>
+    suspend fun getJets(): Response<List<Jet>>
 
     @POST("storage/v1/object/jet_images/{fileName}")
     suspend fun uploadImage(
-        @Header("Authorization") token: String,
         @Path("fileName") fileName: String,
         @Body file: RequestBody
     ): Response<Unit>
 
     @POST("rest/v1/jetsx")
     suspend fun postJet(
-        @Header("Authorization") token: String,
         @Body jet: Jet
     ): Response<Unit>
 
     @DELETE("rest/v1/jetsx")
     suspend fun deleteJet(
-        @Header("Authorization") token: String,
-        @Query("id") id: String
+        @Query("id") id: String,
+        @Query("email") email: String
     ): Response<Unit>
 }
 
@@ -72,6 +71,9 @@ object AeroVaultApi {
     }
 
     fun getJetUrl(imageId: String): String {
+        if (imageId.startsWith("http://") || imageId.startsWith("https://")) {
+            return imageId
+        }
         return "${BASE_URL}storage/v1/object/public/jet_images/$imageId"
     }
 }

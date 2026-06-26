@@ -16,5 +16,8 @@ data class Jet(
     val role: String,
 
     @Json(name = "imageUrl")
-    val imageUrl: String
+    val imageUrl: String,
+
+    @Json(name = "email")
+    val email: String? = null
 )

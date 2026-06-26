@@ -1,65 +1,78 @@
 package com.masefal_0046.aerovault.ui.screen
 
+import android.util.Log
+import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.masefal_0046.aerovault.model.Jet
 import com.masefal_0046.aerovault.network.AeroVaultApi
 import com.masefal_0046.aerovault.network.AeroVaultApiService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
+import retrofit2.Response
 
-sealed class NetworkResult<out T> {
-    object Idle : NetworkResult<Nothing>()
-    object Loading : NetworkResult<Nothing>()
-    data class Success<out T>(val data: T) : NetworkResult<T>()
-    data class Error(val message: String) : NetworkResult<Nothing>()
-}
+enum class ApiStatus { LOADING, SUCCESS, FAILED }
 
 class MainViewModel(
     private val apiService: AeroVaultApiService
 ) : ViewModel() {
 
-    val errorMessage = androidx.compose.runtime.mutableStateOf<String?>(null)
+    var data = mutableStateOf(emptyList<Jet>())
+        private set
 
-    private val _jetsState = MutableStateFlow<NetworkResult<List<Jet>>>(NetworkResult.Idle)
-    val jetsState: StateFlow<NetworkResult<List<Jet>>> = _jetsState.asStateFlow()
+    var status = MutableStateFlow(ApiStatus.LOADING)
+        private set
 
-    private val _addJetState = MutableStateFlow<NetworkResult<Jet>>(NetworkResult.Idle)
-    val addJetState: StateFlow<NetworkResult<Jet>> = _addJetState.asStateFlow()
+    var errorMessage = mutableStateOf<String?>(null)
+        private set
 
-    private val _deleteJetState = MutableStateFlow<NetworkResult<Unit>>(NetworkResult.Idle)
-    val deleteJetState: StateFlow<NetworkResult<Unit>> = _deleteJetState.asStateFlow()
-
-
-    fun fetchJets(token: String) {
-        viewModelScope.launch {
-            _jetsState.value = NetworkResult.Loading
+    fun retrieveData(userId: String = "") {
+        viewModelScope.launch(Dispatchers.IO) {
+            status.value = ApiStatus.LOADING
             try {
-                val response = apiService.getJets(token)
+                val response = apiService.getJets()
                 if (response.isSuccessful && response.body() != null) {
-                    _jetsState.value = NetworkResult.Success(response.body()!!)
+                    val jets = response.body()!!
+
+                    jets.forEach {
+                        Log.d(
+                            "CEK_JET",
+                            "login=$userId | id=${it.id} | nama=${it.nama} | email=${it.email}"
+                        )
+                    }
+
+                    data.value = jets
+                    status.value = ApiStatus.SUCCESS
                 } else {
-                    _jetsState.value = NetworkResult.Error("Failed to fetch data: ${response.message()}")
+                    throw Exception(response.toErrorMessage("Gagal mengambil data jet"))
                 }
             } catch (e: Exception) {
-                _jetsState.value = NetworkResult.Error("No Internet Connection or Server Error")
+                Log.d("MainViewModel", "Failure: ${e.message}")
+                status.value = ApiStatus.FAILED
+                errorMessage.value = e.message
             }
         }
     }
 
-    fun addJet(token: String, name: String, origin: String, role: String, imageBytes: ByteArray) {
-        viewModelScope.launch {
-            _addJetState.value = NetworkResult.Loading
+    fun clearMessage() {
+        errorMessage.value = null
+    }
+
+    fun saveData(userId: String, name: String, origin: String, role: String, imageBytes: ByteArray) {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
+                if (userId.isBlank()) {
+                    throw Exception("Login diperlukan untuk menambah jet")
+                }
+
                 val fileName = "jet_${System.currentTimeMillis()}.jpg"
                 val requestFile = imageBytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
 
-                val uploadResponse = apiService.uploadImage(token, fileName, requestFile)
+                val uploadResponse = apiService.uploadImage(fileName, requestFile)
 
                 if (uploadResponse.isSuccessful) {
                     val newJet = Jet(
@@ -67,58 +80,61 @@ class MainViewModel(
                         nama = name,
                         asalNegara = origin,
                         role = role,
-                        imageUrl = fileName
+                        imageUrl = fileName,
+                        email = userId
                     )
 
-                    val postResponse = apiService.postJet(token, newJet)
+                    val postResponse = apiService.postJet(newJet)
 
                     if (postResponse.isSuccessful) {
-                        _addJetState.value = NetworkResult.Success(newJet)
-                        fetchJets(token)
+                        retrieveData(userId)
                     } else {
-                        _addJetState.value = NetworkResult.Error("Gagal menyimpan detail jet")
+                        throw Exception(postResponse.toErrorMessage("Gagal menyimpan detail jet"))
                     }
                 } else {
-                    _addJetState.value = NetworkResult.Error("Gagal upload gambar jet")
+                    throw Exception(uploadResponse.toErrorMessage("Gagal upload gambar jet"))
                 }
             } catch (e: Exception) {
-                _addJetState.value = NetworkResult.Error("Network Error: ${e.localizedMessage}")
+                Log.d("MainViewModel", "Failure: ${e.message}")
+                errorMessage.value = "Error: ${e.message}"
             }
         }
     }
 
-    fun deleteJet(token: String, id: Int) {
-        viewModelScope.launch {
-            _deleteJetState.value = NetworkResult.Loading
+    fun deleteData(userId: String, jetId: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                val response = apiService.deleteJet(token, "eq.$id")
+                if (userId.isBlank()) {
+                    throw Exception("Login diperlukan untuk menghapus jet")
+                }
+
+                val response = apiService.deleteJet("eq.$jetId", "eq.$userId")
                 if (response.isSuccessful) {
-                    _deleteJetState.value = NetworkResult.Success(Unit)
-                    fetchJets(token)
+                    retrieveData(userId)
                 } else {
-                    _deleteJetState.value = NetworkResult.Error("Failed to delete jet")
+                    throw Exception(response.toErrorMessage("Gagal menghapus jet"))
                 }
             } catch (e: Exception) {
-                _deleteJetState.value = NetworkResult.Error("Network Error")
+                Log.d("MainViewModel", "Failure: ${e.message}")
+                errorMessage.value = "Error: ${e.message}"
             }
         }
-    }
-
-    fun resetAddJetState() {
-        _addJetState.value = NetworkResult.Idle
-    }
-
-    fun resetDeleteJetState() {
-        _deleteJetState.value = NetworkResult.Idle
     }
 }
 
-// Factory diperbaiki agar mengambil apiService secara otomatis
+private fun <T> Response<T>.toErrorMessage(prefix: String): String {
+    val errorBody = errorBody()?.string()?.takeIf { it.isNotBlank() }
+    return if (errorBody == null) {
+        "$prefix (${code()} ${message()})"
+    } else {
+        "$prefix (${code()}): $errorBody"
+    }
+}
+
 class MainViewModelFactory : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            // Mengambil instance singleton AeroVaultApi.service yang udah lo buat
             return MainViewModel(AeroVaultApi.service) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")

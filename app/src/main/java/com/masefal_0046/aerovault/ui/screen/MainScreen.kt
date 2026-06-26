@@ -2,15 +2,18 @@ package com.masefal_0046.aerovault.ui.screen
 
 import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -78,6 +81,7 @@ fun MainScreen() {
     val context = LocalContext.current
     
     val viewModel: MainViewModel = viewModel(factory = MainViewModelFactory())
+    val errorMessage by viewModel.errorMessage
     
     val dataStore = UserDataStore(context)
     val user by dataStore.userFlow.collectAsState(User())
@@ -123,19 +127,32 @@ fun MainScreen() {
             )
         },
         floatingActionButton = {
-            if (user.email.isNotEmpty()) {
-                FloatingActionButton(onClick = {
+            FloatingActionButton(onClick = {
+                if (user.email.isEmpty()) {
+                    coroutineScope.launch(Dispatchers.IO) { signIn(context, dataStore) }
+                } else {
                     showJetDialog = true
-                }) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Tambah Jet"
-                    )
                 }
+            }) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Tambah Jet"
+                )
             }
         }
     ) { innerPadding ->
-        ScreenContent(viewModel, user.email, Modifier.padding(innerPadding))
+        ScreenContent(
+            viewModel = viewModel,
+            userEmail = user.email,
+            onAddJetClick = {
+                if (user.email.isEmpty()) {
+                    coroutineScope.launch(Dispatchers.IO) { signIn(context, dataStore) }
+                } else {
+                    showJetDialog = true
+                }
+            },
+            modifier = Modifier.padding(innerPadding)
+        )
 
         if (showProfileDialog) {
             ProfileDialog(
@@ -143,7 +160,6 @@ fun MainScreen() {
                 onDismissRequest = { showProfileDialog = false },
                 onConfirmation = {
                     showProfileDialog = false
-                    // Panggil scope yang udah di-remember
                     coroutineScope.launch(Dispatchers.IO) { signOut(context, dataStore) }
                 }
             )
@@ -156,39 +172,44 @@ fun MainScreen() {
                 onDismiss = { showJetDialog = false }
             )
         }
+
+        if (errorMessage != null) {
+            Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
+            viewModel.clearMessage()
+        }
     }
 }
 
 @Composable
-fun ScreenContent(viewModel: MainViewModel, token: String, modifier: Modifier = Modifier) {
-    val jetsState by viewModel.jetsState.collectAsState()
+fun ScreenContent(
+    viewModel: MainViewModel,
+    userEmail: String,
+    onAddJetClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val data by viewModel.data
+    val status by viewModel.status.collectAsState()
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var jetToDelete by remember { mutableStateOf<Jet?>(null) }
 
-    LaunchedEffect(token) {
-        if (token.isNotEmpty()) {
-            viewModel.fetchJets("Bearer $token")
-        }
+    LaunchedEffect(userEmail) {
+        viewModel.retrieveData(userEmail)
     }
 
-    when (jetsState) {
-        is NetworkResult.Idle, is NetworkResult.Loading -> {
-            Box(
-                modifier = modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+    when (status) {
+        ApiStatus.LOADING -> {
+            LoadingContent(modifier)
         }
 
-        is NetworkResult.Success -> {
-            val data = (jetsState as NetworkResult.Success).data
-
+        ApiStatus.SUCCESS -> {
             if (data.isEmpty()) {
-                Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Belum ada koleksi jet tempur.")
-                }
+                EmptyStateContent(
+                    modifier = modifier,
+                    title = "Belum ada koleksi jet tempur.",
+                    buttonText = "Tambah Jet",
+                    onButtonClick = onAddJetClick
+                )
             } else {
                 LazyVerticalGrid(
                     modifier = modifier.fillMaxSize().padding(4.dp),
@@ -196,10 +217,14 @@ fun ScreenContent(viewModel: MainViewModel, token: String, modifier: Modifier = 
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
                     items(data) { jet ->
+                        val isMine = userEmail.isNotBlank() &&
+                                jet.email?.trim().equals(userEmail.trim(), ignoreCase = true)
+
                         JetItem(
                             jet = jet,
-                            onDeleteClick = {
-                                jetToDelete = jet
+                            isMine = isMine,
+                            onDeleteClick = { selectedJet ->
+                                jetToDelete = selectedJet
                                 showDeleteDialog = true
                             }
                         )
@@ -208,48 +233,80 @@ fun ScreenContent(viewModel: MainViewModel, token: String, modifier: Modifier = 
             }
         }
 
-        is NetworkResult.Error -> {
-            Column(
-                modifier = modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(text = "Gagal memuat data")
-                Button(
-                    onClick = { if (token.isNotEmpty()) viewModel.fetchJets("Bearer $token") },
-                    modifier = Modifier.padding(top = 16.dp)
-                ) {
-                    Text("Coba Lagi")
+        ApiStatus.FAILED -> {
+            EmptyStateContent(
+                modifier = modifier,
+                title = "Gagal memuat data",
+                message = "Data jet tidak berhasil dimuat.",
+                buttonText = "Coba Lagi",
+                onButtonClick = {
+                    viewModel.retrieveData(userEmail)
                 }
-            }
+            )
         }
     }
 
     if (showDeleteDialog && jetToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false; jetToDelete = null },
-            title = { Text("Hapus Jet") },
-            text = { Text("Yakin ingin menghapus ${jetToDelete?.nama}?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteJet("Bearer $token", jetToDelete!!.id!!)
-                    showDeleteDialog = false
-                    jetToDelete = null
-                }) {
-                    Text("Hapus")
-                }
+        HapusDialog(
+            onDismissRequest = {
+                showDeleteDialog = false
+                jetToDelete = null
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false; jetToDelete = null }) {
-                    Text("Batal")
+            onConfirmation = {
+                jetToDelete?.id?.let { jetId ->
+                    viewModel.deleteData(userEmail, jetId)
                 }
+                showDeleteDialog = false
+                jetToDelete = null
             }
         )
     }
 }
 
 @Composable
-fun JetItem(jet: Jet, onDeleteClick: () -> Unit) {
+private fun LoadingContent(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator()
+    }
+}
+
+@Composable
+private fun EmptyStateContent(
+    modifier: Modifier = Modifier,
+    title: String,
+    message: String? = null,
+    buttonText: String,
+    onButtonClick: () -> Unit
+) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(text = title)
+        if (!message.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onButtonClick) {
+            Text(buttonText)
+        }
+    }
+}
+
+@Composable
+fun JetItem(
+    jet: Jet,
+    isMine: Boolean,
+    onDeleteClick: (Jet) -> Unit
+) {
     Box(
         modifier = Modifier
             .padding(4.dp)
@@ -274,9 +331,9 @@ fun JetItem(jet: Jet, onDeleteClick: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(4.dp) // Padding luar (sebelum background transparan)
+                .padding(4.dp)
                 .background(Color(red = 0f, green = 0f, blue = 0f, alpha = 0.5f))
-                .padding(8.dp) // Padding dalam (biar teks nggak nempel banget ke batas hitamnya)
+                .padding(8.dp)
         ) {
             Text(
                 text = jet.nama,
@@ -291,15 +348,17 @@ fun JetItem(jet: Jet, onDeleteClick: () -> Unit) {
             )
         }
 
-        IconButton(
-            onClick = onDeleteClick,
-            modifier = Modifier.align(Alignment.TopEnd)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Delete,
-                contentDescription = "Hapus Jet",
-                tint = Color.Red
-            )
+        if (isMine) {
+            IconButton(
+                onClick = { onDeleteClick(jet) },
+                modifier = Modifier.align(Alignment.BottomEnd)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Hapus Jet",
+                    tint = Color.Red
+                )
+            }
         }
     }
 }
@@ -348,4 +407,38 @@ private suspend fun signOut(context: Context, dataStore: UserDataStore) {
     } catch (e: ClearCredentialException) {
         Log.e("SIGN-IN", "Error: ${e.errorMessage}")
     }
+}
+
+@Composable
+fun HapusDialog(
+    onDismissRequest: () -> Unit,
+    onConfirmation: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = { onDismissRequest() },
+        title = {
+            Text("Hapus Jet")
+        },
+        text = {
+            Text("Apakah Anda yakin ingin menghapus data jet ini? Tindakan ini tidak dapat dibatalkan.")
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirmation()
+                }
+            ) {
+                Text("Hapus", color = Color.Red)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    onDismissRequest()
+                }
+            ) {
+                Text("Batal")
+            }
+        }
+    )
 }
