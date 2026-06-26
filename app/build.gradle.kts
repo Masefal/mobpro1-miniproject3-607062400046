@@ -1,9 +1,10 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
 
-import java.util.Properties
 
 android {
     namespace = "com.masefal_0046.aerovault"
@@ -24,7 +25,8 @@ android {
         
         val properties = Properties()
         properties.load(project.rootProject.file("local.properties").inputStream())
-        buildConfigField("String", "API_KEY", properties.getProperty("API_KEY"))
+        buildConfigField("String", "SUPABASE_KEY", properties.getProperty("SUPABASE_API_KEY") ?: "\"MISSING\"")
+        buildConfigField("String", "GOOGLE_KEY", properties.getProperty("GOOGLE_API_KEY") ?: "\"MISSING\"")
     }
 
     buildTypes {
@@ -71,6 +73,7 @@ dependencies {
     implementation(libs.googleid)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.compose.material.icons.extended)
+    implementation(libs.androidx.ui.graphics)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

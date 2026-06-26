@@ -1,11 +1,14 @@
 package com.masefal_0046.aerovault.ui.screen
 
+import android.content.Context
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -35,6 +38,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,7 +50,6 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -54,6 +57,7 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetCredentialResponse
 import androidx.credentials.exceptions.ClearCredentialException
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
@@ -61,14 +65,12 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import com.masefal_0046.aerovault.BuildConfig
 import com.masefal_0046.aerovault.R
-import com.masefal_0046.aerovault.network.UserDataStore
 import com.masefal_0046.aerovault.model.Jet
 import com.masefal_0046.aerovault.model.User
-import kotlinx.coroutines.CoroutineScope
+import com.masefal_0046.aerovault.network.AeroVaultApi
+import com.masefal_0046.aerovault.network.UserDataStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import android.util.Log
-import android.content.Context
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +81,8 @@ fun MainScreen() {
     
     val dataStore = UserDataStore(context)
     val user by dataStore.userFlow.collectAsState(User())
+
+    val coroutineScope = rememberCoroutineScope()
 
     var showProfileDialog by remember { mutableStateOf(false) }
     var showJetDialog by remember { mutableStateOf(false) }
@@ -96,28 +100,38 @@ fun MainScreen() {
                 actions = {
                     IconButton(onClick = {
                         if (user.email.isEmpty()) {
-                            CoroutineScope(Dispatchers.IO).launch { signIn(context, dataStore) }
+                            coroutineScope.launch(Dispatchers.IO) { signIn(context, dataStore) }
                         } else {
                             showProfileDialog = true
                         }
                     }) {
-                        Icon(
-                            imageVector = Icons.Default.AccountCircle,
-                            contentDescription = "Profil",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                        if (user.email.isNotEmpty()) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = "Profil",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = "Login",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                showJetDialog = true
-            }) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Tambah Jet"
-                )
+            if (user.email.isNotEmpty()) {
+                FloatingActionButton(onClick = {
+                    showJetDialog = true
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Tambah Jet"
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -127,9 +141,10 @@ fun MainScreen() {
             ProfileDialog(
                 user = user,
                 onDismissRequest = { showProfileDialog = false },
-                onConfirmation = { 
-                    showProfileDialog = false 
-                    CoroutineScope(Dispatchers.IO).launch { signOut(context, dataStore) }
+                onConfirmation = {
+                    showProfileDialog = false
+                    // Panggil scope yang udah di-remember
+                    coroutineScope.launch(Dispatchers.IO) { signOut(context, dataStore) }
                 }
             )
         }
@@ -145,15 +160,15 @@ fun MainScreen() {
 }
 
 @Composable
-fun ScreenContent(viewModel: MainViewModel, userEmail: String, modifier: Modifier = Modifier) {
+fun ScreenContent(viewModel: MainViewModel, token: String, modifier: Modifier = Modifier) {
     val jetsState by viewModel.jetsState.collectAsState()
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var jetToDelete by remember { mutableStateOf<Jet?>(null) }
 
-    LaunchedEffect(userEmail) {
-        if (userEmail.isNotEmpty()) {
-            viewModel.fetchJets(userEmail)
+    LaunchedEffect(token) {
+        if (token.isNotEmpty()) {
+            viewModel.fetchJets("Bearer $token")
         }
     }
 
@@ -169,21 +184,26 @@ fun ScreenContent(viewModel: MainViewModel, userEmail: String, modifier: Modifie
 
         is NetworkResult.Success -> {
             val data = (jetsState as NetworkResult.Success).data
-            LazyVerticalGrid(
-                modifier = modifier
-                    .fillMaxSize()
-                    .padding(4.dp),
-                columns = GridCells.Fixed(2),
-                contentPadding = PaddingValues(bottom = 80.dp)
-            ) {
-                items(data) { jet ->
-                    JetItem(
-                        jet = jet,
-                        onDeleteClick = { 
-                            jetToDelete = jet
-                            showDeleteDialog = true
-                        }
-                    )
+
+            if (data.isEmpty()) {
+                Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Belum ada koleksi jet tempur.")
+                }
+            } else {
+                LazyVerticalGrid(
+                    modifier = modifier.fillMaxSize().padding(4.dp),
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    items(data) { jet ->
+                        JetItem(
+                            jet = jet,
+                            onDeleteClick = {
+                                jetToDelete = jet
+                                showDeleteDialog = true
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -194,29 +214,25 @@ fun ScreenContent(viewModel: MainViewModel, userEmail: String, modifier: Modifie
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(text = stringResource(id = R.string.error))
+                Text(text = "Gagal memuat data")
                 Button(
-                    onClick = { if (userEmail.isNotEmpty()) viewModel.fetchJets(userEmail) },
-                    modifier = Modifier.padding(top = 16.dp),
-                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp)
+                    onClick = { if (token.isNotEmpty()) viewModel.fetchJets("Bearer $token") },
+                    modifier = Modifier.padding(top = 16.dp)
                 ) {
-                    Text(text = stringResource(id = R.string.try_again))
+                    Text("Coba Lagi")
                 }
             }
         }
     }
-    
+
     if (showDeleteDialog && jetToDelete != null) {
         AlertDialog(
-            onDismissRequest = {
-                showDeleteDialog = false
-                jetToDelete = null
-            },
+            onDismissRequest = { showDeleteDialog = false; jetToDelete = null },
             title = { Text("Hapus Jet") },
-            text = { Text("Apakah Anda yakin ingin menghapus ${jetToDelete?.nama}?") },
+            text = { Text("Yakin ingin menghapus ${jetToDelete?.nama}?") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.deleteJet(userEmail, jetToDelete!!.id)
+                    viewModel.deleteJet("Bearer $token", jetToDelete!!.id!!)
                     showDeleteDialog = false
                     jetToDelete = null
                 }) {
@@ -224,10 +240,7 @@ fun ScreenContent(viewModel: MainViewModel, userEmail: String, modifier: Modifie
                 }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    showDeleteDialog = false
-                    jetToDelete = null
-                }) {
+                TextButton(onClick = { showDeleteDialog = false; jetToDelete = null }) {
                     Text("Batal")
                 }
             }
@@ -245,7 +258,7 @@ fun JetItem(jet: Jet, onDeleteClick: () -> Unit) {
     ) {
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
-                .data(jet.imageUrl)
+                .data(AeroVaultApi.getJetUrl(jet.imageUrl))
                 .crossfade(true)
                 .build(),
             contentDescription = "Gambar ${jet.nama}",
@@ -253,15 +266,17 @@ fun JetItem(jet: Jet, onDeleteClick: () -> Unit) {
             error = androidx.compose.ui.res.painterResource(id = R.drawable.broken_img),
             modifier = Modifier
                 .fillMaxWidth()
+                .aspectRatio(1f)
                 .padding(4.dp),
             contentScale = ContentScale.Crop
         )
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(4.dp)
+                .padding(4.dp) // Padding luar (sebelum background transparan)
                 .background(Color(red = 0f, green = 0f, blue = 0f, alpha = 0.5f))
-                .padding(4.dp)
+                .padding(8.dp) // Padding dalam (biar teks nggak nempel banget ke batas hitamnya)
         ) {
             Text(
                 text = jet.nama,
@@ -292,7 +307,7 @@ fun JetItem(jet: Jet, onDeleteClick: () -> Unit) {
 private suspend fun signIn(context: Context, dataStore: UserDataStore) {
     val googleIdOption: GetGoogleIdOption = GetGoogleIdOption.Builder()
         .setFilterByAuthorizedAccounts(false)
-        .setServerClientId(BuildConfig.API_KEY)
+        .setServerClientId(BuildConfig.GOOGLE_KEY)
         .build()
 
     val request: GetCredentialRequest = GetCredentialRequest.Builder()
